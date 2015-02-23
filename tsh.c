@@ -1,7 +1,7 @@
 /* 
  * tsh - A tiny shell program with job control
  * 
- * <Put your name and login ID here>
+ * <Siddharth Kamaria - 201301016 | 201301016@daiict.ac.in>
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +165,11 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
+    char **argv;
+    int isBg, isBuiltIn
+    isBg = parseline(cmdline, argv); 
+    isBuiltIn = builtin_cmd(argv);
+
     return;
 }
 
@@ -231,6 +236,19 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
+    if(strcmp(argv[0], "quit") == 0){
+	kill(getpid(), SIGQUIT);
+	return 1;
+    }
+    else if(strcmp(argv[0], "bg") == 0){	//Include code to execute commands!
+	return 1;
+    }
+    else if(strcmp(argv[0], "fg") == 0){
+	return 1;
+    }
+    else if(strcmp(argv[0], "jobs") == 0){
+	return 1;	
+    }
     return 0;     /* not a builtin command */
 }
 
