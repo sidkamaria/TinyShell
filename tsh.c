@@ -165,12 +165,29 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
-    char **argv;
-    int isBg, isBuiltIn
+
+    char *argv[MAXARGS];
+    int isBg, isBuiltIn;
     isBg = parseline(cmdline, argv); 
+    	//printf("\n%s : %s : %s\n",argv[0],argv[1],argv[2]);
     isBuiltIn = builtin_cmd(argv);
+        printf("%d\n",isBg);
+    if(!isBuiltIn){
+	if(fork()==0){
+		if(isBg) {
+			setpgrp();
+			listjobs(jobs);
+		}
+		execv(argv[0],argv);
+	}
+	else
+		wait(NULL);
+    }
+
+	
 
     return;
+
 }
 
 /* 
@@ -237,7 +254,7 @@ int parseline(const char *cmdline, char **argv)
 int builtin_cmd(char **argv) 
 {
     if(strcmp(argv[0], "quit") == 0){
-	kill(getpid(), SIGQUIT);
+	exit(0);
 	return 1;
     }
     else if(strcmp(argv[0], "bg") == 0){	//Include code to execute commands!
