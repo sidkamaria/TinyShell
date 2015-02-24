@@ -168,23 +168,33 @@ void eval(char *cmdline)
 
     char *argv[MAXARGS];
     int isBg, isBuiltIn;
+    pid_t pid;
     isBg = parseline(cmdline, argv); 
     	//printf("\n%s : %s : %s\n",argv[0],argv[1],argv[2]);
     isBuiltIn = builtin_cmd(argv);
-        printf("%d\n",isBg);
-    if(!isBuiltIn){
-	if(fork()==0){
-		if(isBg) {
-			setpgrp();
-			listjobs(jobs);
-		}
-		execv(argv[0],argv);
-	}
-	else
-		wait(NULL);
-    }
+        //printf("%d\n",isBg);
+    if(isBuiltIn == 0 && isBg == 0){
 
-	
+	if((pid = fork()) == 0) execv(argv[0], argv);
+	else{
+		addjob(jobs, pid, FG, cmdline);
+		wait(NULL);
+		deletejob(jobs, pid);
+	}
+
+    }
+	if(isBuiltIn == 0 && isBg == 1){
+		
+		if((pid = fork()) == 0){
+			setpgid(0, 0);
+			execv(argv[0],argv);
+		}
+		else{
+			addjob(jobs, pid, BG, cmdline);
+			printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+		}
+
+	}
 
     return;
 
@@ -264,6 +274,7 @@ int builtin_cmd(char **argv)
 	return 1;
     }
     else if(strcmp(argv[0], "jobs") == 0){
+	listjobs(jobs);
 	return 1;	
     }
     return 0;     /* not a builtin command */
@@ -308,6 +319,10 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(fgpid(jobs)), fgpid(jobs), sig);
+    deletejob(jobs, fgpid(jobs));
+    kill(fgpid(jobs), SIGKILL);
+
     return;
 }
 
@@ -318,6 +333,11 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    pid_t pid = fgpid(jobs);
+    struct job_t* job = getjobpid(jobs, pid);
+    job -> state = ST;
+    printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
+    kill(pid, SIGSTOP);
     return;
 }
 
