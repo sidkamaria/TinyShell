@@ -40,6 +40,10 @@ extern char **environ;      /* defined in libc */
 char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
+int flag = 0;
+int temp_jid = 0;
+pid_t temp_pid = 0;
+int sign;
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 
 struct job_t {              /* The job struct */
@@ -145,6 +149,14 @@ int main(int argc, char **argv)
 
 	/* Evaluate the command line */
 	eval(cmdline);
+	
+	if(flag){
+	    printf("Job [%d] (%d) terminated by signal 2\n", temp_jid, temp_pid);
+	    temp_pid = 0;
+	    temp_jid = 0;
+	    flag = 0;
+	}
+
 	fflush(stdout);
 	fflush(stdout);
     } 
@@ -167,24 +179,28 @@ void eval(char *cmdline)
 {
 
     char *argv[MAXARGS];
-    int isBg, isBuiltIn;
+    int isBg, isBuiltIn, status;
     pid_t pid;
     isBg = parseline(cmdline, argv); 
     	//printf("\n%s : %s : %s\n",argv[0],argv[1],argv[2]);
     isBuiltIn = builtin_cmd(argv);
         //printf("%d\n",isBg);
     if(isBuiltIn == 0 && isBg == 0){
-
-	if((pid = fork()) == 0) execv(argv[0], argv);
+	//printf("----------------------------> (FG) %s\n", cmdline);
+	if((pid = fork()) == 0){
+		setpgid(0, 0);
+		execv(argv[0], argv);
+	}
 	else{
 		addjob(jobs, pid, FG, cmdline);
-		wait(NULL);
-		deletejob(jobs, pid);
+		//waitfg(pid);
+		waitpid(pid, &status, WUNTRACED);
+		if(WIFEXITED(status) || WIFSIGNALED(status)) deletejob(jobs, pid);
 	}
 
     }
 	if(isBuiltIn == 0 && isBg == 1){
-		
+		//printf("----------------------------> (BG) %s\n", cmdline);
 		if((pid = fork()) == 0){
 			setpgid(0, 0);
 			execv(argv[0],argv);
@@ -273,7 +289,7 @@ int builtin_cmd(char **argv)
     else if(strcmp(argv[0], "fg") == 0){
 	return 1;
     }
-    else if(strcmp(argv[0], "jobs") == 0){
+    else if(strcmp(argv[0], "jobs") == 0){	
 	listjobs(jobs);
 	return 1;	
     }
@@ -293,6 +309,7 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    waitpid(pid, NULL, WUNTRACED);
     return;
 }
 
@@ -309,7 +326,7 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    return;
+    
 }
 
 /* 
@@ -318,11 +335,12 @@ void sigchld_handler(int sig)
  *    to the foreground job.  
  */
 void sigint_handler(int sig) 
-{
-    printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(fgpid(jobs)), fgpid(jobs), sig);
-    deletejob(jobs, fgpid(jobs));
-    kill(fgpid(jobs), SIGKILL);
-
+{   
+    flag = 1;
+    sign = sig;
+    temp_pid = fgpid(jobs);
+    temp_jid = pid2jid(temp_pid);
+    kill(-fgpid(jobs), SIGINT);
     return;
 }
 
@@ -338,6 +356,7 @@ void sigtstp_handler(int sig)
     job -> state = ST;
     printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
     kill(pid, SIGSTOP);
+
     return;
 }
 
