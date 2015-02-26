@@ -40,7 +40,7 @@ extern char **environ;      /* defined in libc */
 char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
-int flag = 0;
+int flag = 0, int_flag = 0, stp_flag = 0;
 int temp_jid = 0;
 pid_t temp_pid = 0;
 int sign;
@@ -197,6 +197,10 @@ void eval(char *cmdline)
 	else{
 		addjob(jobs, pid, FG, cmdline);
 		waitfg(pid);
+		if(WIFSIGNALED(diag) && int_flag == 0) kill(getpid(), SIGINT);
+		if(WIFSTOPPED(diag) && stp_flag == 0) kill(getpid(), SIGTSTP);
+		int_flag = 0;
+		stp_flag = 0;
 		if(WIFEXITED(diag) || WIFSIGNALED(diag)) deletejob(jobs, pid);
 		diag = 0;
 	}
@@ -437,6 +441,8 @@ void sigint_handler(int sig)
     temp_pid = fgpid(jobs);
     temp_jid = pid2jid(temp_pid);
     kill(-fgpid(jobs), SIGINT);
+    int_flag = 1;
+
     return;
 }
 
@@ -452,6 +458,7 @@ void sigtstp_handler(int sig)
     job -> state = ST;
     printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
     kill(-pid, SIGSTOP);
+    stp_flag = 1;
 
     return;
 }
