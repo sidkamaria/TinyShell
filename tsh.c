@@ -426,7 +426,16 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    
+    pid_t pid;
+
+    while(1){
+
+	pid = waitpid(-1, NULL, WNOHANG);
+	if(pid <= 0) break;
+	deletejob(jobs, pid);	
+
+    }
+
 }
 
 /* 
