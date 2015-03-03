@@ -1,7 +1,7 @@
 /* 
  * tsh - A tiny shell program with job control
  * 
- * <Siddharth Kamaria - 201301016 | 201301016@daiict.ac.in>
+ * <Siddharth Kamaria - 201301016 :: 201301016@daiict.ac.in>
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,11 +40,14 @@ extern char **environ;      /* defined in libc */
 char prompt[] = "tsh> ";    /* command line prompt (DO NOT CHANGE) */
 int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
-int flag = 0, int_flag = 0, stp_flag = 0;
-int temp_jid = 0;
-pid_t temp_pid = 0;
-int sign;
-int diag;
+int flag = 0, int_flag = 0, stp_flag = 0; /* Flags for signal handlers. 
+					        1.) `flag` - Prints the SIGINT message when it is '1'.
+ 					        2.) `int_flag` & 'stp_flag`- Used for passing on signals which are not generated from terminal. 
+					  */ 
+int temp_jid = 0;	    /* Stores jid for global use. */
+pid_t temp_pid = 0;	    /* Stores pid for global use. */
+int sign;		    /* Store the signal number */
+int diag;		    /* Used as a 'status' variable in `wait` calls. */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 
 struct job_t {              /* The job struct */
@@ -151,11 +154,11 @@ int main(int argc, char **argv)
 	/* Evaluate the command line */
 	eval(cmdline);
 	
-	if(flag){
-	    printf("Job [%d] (%d) terminated by signal 2\n", temp_jid, temp_pid);
+	if(flag){								    /* Prints the SIGINT message only if `flag` is set to 1. */
+	    printf("Job [%d] (%d) terminated by signal 2\n", temp_jid, temp_pid);	  
 	    temp_pid = 0;
 	    temp_jid = 0;
-	    flag = 0;
+	    flag = 0;			/* Reset the variables and the flag. */
 	}
 
 	fflush(stdout);
@@ -179,15 +182,15 @@ int main(int argc, char **argv)
 void eval(char *cmdline) 
 {
 
-    char *argv[MAXARGS];
-    int isBg, isBuiltIn;
-    pid_t pid;
-    isBg = parseline(cmdline, argv); 
-    	//printf("\n%s : %s : %s\n",argv[0],argv[1],argv[2]);
+    char *argv[MAXARGS];				 	/* Arguments array */
+    int isBg, isBuiltIn;					/* `isBg` - Denotes backgroung process. `isBuiltIn` - Denotes builtin command. */
+    pid_t pid;							
+
+    isBg = parseline(cmdline, argv); 				
     isBuiltIn = builtin_cmd(argv);
-        //printf("%d\n",isBg);
-    if(isBuiltIn == 0 && isBg == 0){
-	//printf("----------------------------> (FG) %s\n", cmdline);
+        
+    if(isBuiltIn == 0 && isBg == 0){				/* If it is not a builtin command and a background process, then keep it in 									   foreground and wait till it finishes. */
+	
 	if((pid = fork()) == 0){
 		setpgid(0, 0);
 		execv(argv[0], argv);
@@ -197,25 +200,25 @@ void eval(char *cmdline)
 	else{
 		addjob(jobs, pid, FG, cmdline);
 		waitfg(pid);
-		if(WIFSIGNALED(diag) && int_flag == 0) kill(getpid(), SIGINT);
-		if(WIFSTOPPED(diag) && stp_flag == 0) kill(getpid(), SIGTSTP);
-		int_flag = 0;
+		if(WIFSIGNALED(diag) && int_flag == 0) kill(getpid(), SIGINT);	/* Forward the signals (from other sources) to terminal. */
+		if(WIFSTOPPED(diag) && stp_flag == 0) kill(getpid(), SIGTSTP);	
+		int_flag = 0;							/* Flags controls the call to `kill` */
 		stp_flag = 0;
-		if(WIFEXITED(diag) || WIFSIGNALED(diag)) deletejob(jobs, pid);
+		if(WIFEXITED(diag) || WIFSIGNALED(diag)) deletejob(jobs, pid);	/* Delete the job from struct upon successful termination. (either 										           normally or due to a signal.) */
 		diag = 0;
 	}
 
     }
-	if(isBuiltIn == 0 && isBg == 1){
-		//printf("----------------------------> (BG) %s\n", cmdline);
+	if(isBuiltIn == 0 && isBg == 1){			/* Run the command in background mode without waiting for it. */
+		
 		if((pid = fork()) == 0){
-			setpgid(0, 0);
+			setpgid(0, 0);				
 			execv(argv[0],argv);
 			printf("%s: Command not found\n", argv[0]);
 			exit(0);
 		}
 		else{
-			addjob(jobs, pid, BG, cmdline);
+			addjob(jobs, pid, BG, cmdline);			/* Add the job and print a message with jid and pid. */
 			printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
 		}
 
@@ -288,14 +291,15 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv) 
 {
-    if(strcmp(argv[0], "quit") == 0){
+    if(argv[0] == NULL) return 1;	/* Returns the prompt without doing anything. */
+    if(strcmp(argv[0], "quit") == 0){	/* Exit if command is `quit`. */
 	exit(0);
     }
-    else if(strcmp(argv[0], "bg") == 0 || strcmp(argv[0], "fg") == 0){
+    else if(strcmp(argv[0], "bg") == 0 || strcmp(argv[0], "fg") == 0){		/* Changes it to BG -> FG or FG -> BG appropriately. */
 	do_bgfg(argv);
 	return 1;
     }
-    else if(strcmp(argv[0], "jobs") == 0){	
+    else if(strcmp(argv[0], "jobs") == 0){	/* Prints all the jobs in the structure. */
 	listjobs(jobs);
 	return 1;	
     }
@@ -306,48 +310,49 @@ int builtin_cmd(char **argv)
  * do_bgfg - Execute the builtin bg and fg commands
  */
 void do_bgfg(char **argv) 
-{
+{					/* Transfers job control from BG -> FG or FG -> BG of a job. */
     struct job_t *job;
     int val = 0;
-    char *ptr = argv[1];
-    char *temp;
+    char *ptr = argv[1];		
+    char *temp;				/* Used for extracting the number from %jid. Stores jid and removes the '%'. */
+
     if(argv[1] != NULL) temp = malloc(strlen(argv[1]) * sizeof(char));
     if(strcmp(argv[0], "bg") == 0){
-	if(argv[1] == NULL){
-		printf("bg command requires a PID or %%jobid argument\n");
+	if(argv[1] == NULL){							/* Checks for non-null arguments. */
+		printf("bg command requires PID or %%jobid argument\n");
 		return;
 	}
-	if(*ptr == '%'){
+	if(*ptr == '%'){		/* Runs the `bg` command using jid. */
 		ptr++;
 		strncpy(temp, ptr, strlen(argv[1]) - 1);
-		val = atoi(temp);
-		if(val == 0){
+		val = atoi(temp);						/* Returns 0 if it couldn't be casted to an integer. */
+		if(val == 0){							/* Checks for an integral argument. */ 	
 			printf("bg: argument must be a PID or %%jobid\n");
 			return;
 		}
 		job = getjobjid(jobs, val);
-		if(job == NULL){
+		if(job == NULL){				/* Checks for a valid jid. */
 			printf("%%%d: No such job\n", val);
 			return;
 		}
-		if(job -> state == ST){
+		if(job -> state == ST){				/* Change the state to background iff the job is in stopped state. */
 			job -> state = BG;
 			kill(-(job -> pid), SIGCONT);
 			printf("[%d] (%d) %s", job -> jid, job -> pid, job -> cmdline);
 		}
 	}
-	else{
+	else{			/* Runs the `bg` command using pid. */
 		val = atoi(argv[1]);
-		if(val == 0){
+		if(val == 0){							/* Checks for an integral argument. */
 			printf("bg: argument must be a PID or %%jobid\n");
 			return;
 		}
 		job = getjobpid(jobs, val);
-		if(job == NULL){
+		if(job == NULL){						/* Checks for valid pid. */
 			printf("(%d): No such process\n", val);
 			return;
 		}
-		if(job -> state == ST){
+		if(job -> state == ST){				/* Change the state to background iff the job is in stopped state. */
 			job -> state = BG;
 			kill(-(job -> pid), SIGCONT);
 			printf("[%d] (%d) %s", job -> jid, job -> pid, job -> cmdline);
@@ -355,47 +360,47 @@ void do_bgfg(char **argv)
 	} 
     }
     else{
-	if(argv[1] == NULL){
-		printf("fg command requires a PID or %%jobid argument\n"); 
+	if(argv[1] == NULL){							/* Checks for a non-null argument. */
+		printf("fg command requires PID or %%jobid argument\n"); 
 		return;
 	}
-	if(*ptr == '%'){
+	if(*ptr == '%'){			/* Runs the `fg` command using a jid. */
 		ptr++;
 		strncpy(temp, ptr, strlen(argv[1]) - 1);
 		val = atoi(temp);
-		if(val == 0){
+		if(val == 0){			/* Checks for an integral argument. */
 			printf("fg: argument must be a PID or %%jobid\n");
 			return;
 		}
 		job = getjobjid(jobs, val);
-		if(job == NULL){
+		if(job == NULL){		/* Checks for a valid jid. */
 			printf("%%%d: No such job\n", val);
 			return;
 		}
-		if(job -> state == ST || job -> state == BG){
+		if(job -> state == ST || job -> state == BG){	/* Changes the state from ST -> FG or BG -> FG */
 			job -> state = FG;
 			kill(-(job -> pid), SIGCONT);
 			waitfg(job -> pid);
-			if(WIFEXITED(diag)) deletejob(jobs, job -> pid);
+			if(WIFEXITED(diag)) deletejob(jobs, job -> pid);   /* Deletes the job from struct upon successful termination */
 			diag = 0;
 		}
 	} 
-	else{
+	else{		/* Runs the `fg` command using a pid. */
 		val = atoi(argv[1]);
-		if(val == 0){
+		if(val == 0){						/* Checks for an integral argument. */
 			printf("fg: argument must be a PID or %%jobid\n");
 			return;
 		}
 		job = getjobpid(jobs, val);
-		if(job == NULL){
+		if(job == NULL){					/* Checks for a valid pid. */
 			printf("(%d): No such process\n", val);
 			return;
 		}
-		if(job -> state == ST || job -> state == BG){
+		if(job -> state == ST || job -> state == BG){		/* Changes the state from ST -> FG or BG -> FG */
 			job -> state = FG;
 			kill(-(job -> pid), SIGCONT);
 			waitfg(job -> pid);
-			if(WIFEXITED(diag)) deletejob(jobs, job -> pid);
+			if(WIFEXITED(diag)) deletejob(jobs, job -> pid);   /* Deletes the job from struct upon successful termination */
 			diag = 0;
 		}
 	}
@@ -407,7 +412,7 @@ void do_bgfg(char **argv)
 /* 
  * waitfg - Block until process pid is no longer the foreground process
  */
-void waitfg(pid_t pid)
+void waitfg(pid_t pid)				/* Wait for a foreground process until it's either terminated or stopped. */
 {
     waitpid(pid, &diag, WUNTRACED);
     return;
@@ -424,9 +429,9 @@ void waitfg(pid_t pid)
  *     available zombie children, but doesn't wait for any other
  *     currently running children to terminate.  
  */
-void sigchld_handler(int sig) 
+void sigchld_handler(int sig) /* Reaps the zombies and deletes the jobs from the struct. */
 {
-    pid_t pid;
+    pid_t pid;		      /* Particularly used for reaping background processes and deleting jobs. */
 
     while(1){
 
@@ -443,14 +448,15 @@ void sigchld_handler(int sig)
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job.  
  */
-void sigint_handler(int sig) 
+void sigint_handler(int sig)  /* Handles the SIGINT signal from the terminal. */
 {   
-    flag = 1;
-    sign = sig;
     temp_pid = fgpid(jobs);
+    if(temp_pid <= 0) return;	/* If there is no foreground job, do nothing. */
+    flag = 1;			/* Sets the flag so that `main` can print the message. */
+    sign = sig;			
     temp_jid = pid2jid(temp_pid);
-    kill(-fgpid(jobs), SIGINT);
-    int_flag = 1;
+    kill(-fgpid(jobs), SIGINT);		/* Relays the SIGINT to every process in the foreground process group. */
+    int_flag = 1;			
 
     return;
 }
@@ -460,14 +466,16 @@ void sigint_handler(int sig)
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP.  
  */
-void sigtstp_handler(int sig) 
+void sigtstp_handler(int sig)  
 {
-    pid_t pid = fgpid(jobs);
-    struct job_t* job = getjobpid(jobs, pid);
-    job -> state = ST;
-    printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
-    kill(-pid, SIGSTOP);
-    stp_flag = 1;
+    pid_t pid = fgpid(jobs);			/* Fetches the foreground job which is to be stopped. */
+    struct job_t* job = getjobpid(jobs, pid);   /* Get the job from the structure. */
+    if(job != NULL) {
+	job -> state = ST;							/* Change the state to ST if such a job exists. */
+        printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, sig);
+	kill(-pid, SIGSTOP);							/* Relays the SIGSTOP every process in the FG job. */
+   	stp_flag = 1; 
+    }
 
     return;
 }
